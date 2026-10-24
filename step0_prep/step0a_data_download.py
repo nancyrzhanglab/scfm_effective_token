@@ -17,14 +17,14 @@ t0 = time.time()
 def log(m): print(f"[{time.time()-t0:8.1f}s] {m}", flush=True)
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--out", default="/home/mnt/weka/nzh/nzhanglab/project/emiliac/FM_effective/results/poisson/task8_scGPTemb2gex/all_CD8T")
+ap.add_argument("--out", default="")
 ap.add_argument("--census-version", default="2025-11-08",
                 help="PIN THE BUILD.  open_soma() with no version opens whatever "
                      "build is current, so the cohort silently changes with the "
                      "release; 2025-11-08 is the build this project was built on "
                      "(5,381,464 CD8 cells, 110 datasets).  'latest' restores the "
                      "old behaviour.")
-ap.add_argument("--terms", default="/home/mnt/weka/nzh/nzhanglab/project/emiliac/FM_effective/results/poisson/task8_scGPTemb2gex/cd8_ontology_terms.json")
+ap.add_argument("--terms", default="cd8_ontology_terms.json")
 ap.add_argument("--n-top-genes", type=int, default=3000)
 ap.add_argument("--batch-key", default="dataset_id")
 ap.add_argument("--block", type=int, default=400_000)
@@ -69,8 +69,7 @@ with cellxgene_census.open_soma(**_soma) as census:
 
     # ---------------- cell set ----------------
     # Resolved BEFORE the HVG pass so that pass sees exactly the cells that get
-    # downloaded.  In "unique" mode the selection is row-level (dedupe), which a
-    # value_filter cannot express, so the query is driven by coords instead.
+    # downloaded. 
     OBS_PQ = os.path.join(OUT, f"{a.prefix}_obs.parquet")
     if not os.path.exists(OBS_PQ):
         obs_all = exp.obs.read(value_filter=vf).concat().to_pandas()

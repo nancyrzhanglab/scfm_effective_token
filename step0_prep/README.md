@@ -1,27 +1,5 @@
 # step0 — the CD8 cohort and its scGPT embedding
 
-Three scripts, copied verbatim from `scripts/poisson/task8_scGPTemb2gex/`, in
-the order they were run.  The names of the originals are given so the provenance
-is traceable; nothing in the code was changed.
-
-| run order | file here | original |
-|---|---|---|
-| a | `step0a_data_download.py` | `task8_scGPTemb2gex/download_all_cd8.py` |
-| b | `step0b_umi_filter.py` | `task8_scGPTemb2gex/filter_impact_allcd8.py` |
-| c | `step0c_extract_filtered.py` | `task8_scGPTemb2gex/extract_rows_h5ad.py` |
-| d | `step0d_scgpt_prep.py` + `.sub` | `task8_scGPTemb2gex/prep_scgpt_allcd8.py` |
-| e | `step0e_scgpt_embed.py` + `.sub` | `task8_scGPTemb2gex/embed_scgpt_task8.py` |
-| f | `step0f_scgpt_pca.py` | `task9_scGPTemb/pca_scgpt_allcd8.py` |
-| g | `step0g_pca_counts.py` + `.sub` | `task8_scGPTemb2gex/pca_cd8.py` |
-| h | `step0h_harmony.py` + `.sub` | `task8_scGPTemb2gex/harmony_cd8.py` |
-
-Steps d-f are the scGPT cell embedding; g-h are the Harmony one, the baseline
-it is compared against.  The two branches are independent after step c.
-
-Steps d-f are the scGPT cell embedding.  Note they run on the UNFILTERED
-`CD8T_all_hvg.h5ad` (all 5,381,464 cells), not on the step-c output: the
-embedding covers the whole cohort and the UMI filter is applied later, by row
-index, wherever a measurement needs it.
 
 ## a. Download — `step0a_data_download.py`
 
@@ -72,10 +50,7 @@ The script prints a step-by-step table of cells / datasets / donors / assays /
 cell types / tissues surviving each step.
 
 **Why these two assays:** the library-size distribution is bimodal, and the
-discriminator is counts per gene, not genes detected — the three regimes are
-separated in `plot_cd8_assay_groups.py` (not copied here) and recorded in
-`cd8_assay_regimes.json`.  A Poisson count model needs molecules, so read-based
-and panel-based cells have to go.
+discriminator is counts per gene, not genes detected
 
 ## c. Materialise — `step0c_extract_filtered.py`
 
@@ -83,25 +58,10 @@ Slices the parent h5ad by `allcd8_filtered_rowidx.npy` into
 `CD8T_all_hvg_filtered.h5ad`, keeping the same 3,000 gene columns so every
 parent-derived array (PCA scores, embeddings) stays sliceable by the same index.
 
-The original driver `prep_allcd8_filtered.sub` then ran PCA
-(`pca_cd8.py --normaliser raw_sum`) and Harmony on the filtered file; those are
-later steps, not part of step0.
-
-## Paths
-
-All three scripts carry absolute paths to
-`results/poisson/task8_scGPTemb2gex/` as defaults.  `step0a_data_download.py` takes
-`--out`, but the other two hard-code `D = .../task8_scGPTemb2gex`; edit that
-line if this stage is ever re-run into a different directory.
-
 
 ## d. scGPT input — `step0d_scgpt_prep.py`
 
-Turns the HVG count matrix into what scGPT tokenises: the subset of genes whose
-symbols are in the model vocabulary (`data/scGPT_related/models/full/vocab.json`),
-written as a CSR npz plus a gene list.  Two-pass streaming (count nonzeros, then
-fill preallocated arrays) because holding the block list and the final matrix at
-once would need ~7 GB twice.
+Turns the HVG count matrix into what scGPT tokenises.
 
 Cells with NO expressed usable gene cannot be tokenised; they are dropped and
 their positions recorded in `allcd8_scgpt_rowidx.npy`, so embedding rows can
@@ -109,21 +69,11 @@ always be mapped back to h5ad row order instead of silently misaligning.
 
 Outputs: `allcd8_counts_scgpt.npz`, `allcd8_genes_scgpt.txt`,
 `allcd8_scgpt_rowidx.npy`, `allcd8_scgpt_input.json`.
-The `.sub` launches step e on a clean exit, so the array never starts from a
-half-written prep.
 
 ## e. The embedding — `step0e_scgpt_embed.py`
 
 Runs the 51 M-parameter scGPT checkpoint over the cells and writes one 512-d
-vector per cell.  Submitted as a 32-task array (`-t 1-32 -tc 8`, 8 slots x 1.5 G
-on hpc3.q, CPU); each task shards further into fixed global blocks named by their
-cell range, so a finished block is skipped on restart and hitting the wall clock
-costs at most one partial block.  The model is built and loaded once per job and
-reused across blocks.
-
-Determinism: scGPT's collator uses `sampling=True`, so a cell with more expressed
-genes than `max_length` would get a RANDOM subset.  On the HVG matrix no cell
-comes close, and the script ASSERTS that per block rather than assuming it.
+vector per cell. 
 
 Output: shards under `data/scGPT_related/scGPT_emb/CD8T_all/`.
 
@@ -175,30 +125,5 @@ step c, then this PCA with `--prefix allcd8f`, then submits step h.
 (2,871 levels) is available but is biological as well as technical, and the
 per-level correction is ill-posed when many levels hold a handful of cells.
 
-What the script MEASURES rather than asserts: per PC, the fraction of variance
-explained by the batch factor (one-way ANOVA eta^2) before and after correction,
-with cell-type eta^2 on the same axes as a guard against over-correction. For
-the UMI-based run (`allcd8f`, 5,353,450 cells, 94 batches, 50 comps, 10 iters,
-seed 0, 152 min):
-
-```
-batch eta^2   0.2542 -> 0.0073      (what Harmony exists to shrink)
-cell-type     0.0675 -> 0.0309      (should not collapse, and did not)
-```
-
 Outputs `<prefix>_harmony_dataset_id.npy` (N x 50 float32),
 `..._eta2.csv`, `..._json`.
-
-**Two runs exist.**  `step0h_harmony.sub` is the UMI-based one
-(`--prefix allcd8f`, 4 x 13 G on mem.q, sized after the unfiltered run peaked at
-43.8 G of 48 G).  An unfiltered `--prefix allcd8` run over all 5,381,464 cells
-also exists (`harmony_all_cd8.sub` in the original directory, 3 x 16 G,
-batch eta^2 0.2606 -> 0.0069 in 212 min); it is the one that matches the scGPT
-embedding's coverage cell-for-cell, so it is what a cross-embedding comparison
-on the full cohort uses.
-
-**Harmony preserves the PCA axes.** `run_harmony` returns `Z_corr` in the same
-50 coordinates it was given — it subtracts per-cluster batch offsets and does
-not rotate the basis.  That is why a stored main-effect matrix fitted on these
-axes stays valid across re-runs, and why `H_obs - P_obs` is exactly the
-per-cell correction.

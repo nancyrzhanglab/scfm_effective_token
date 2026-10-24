@@ -1,15 +1,7 @@
 #!/usr/bin/env python
 """Harmony on the CD8 PCA, to be compared against the scGPT embedding.
 
-Run on the UMI-based CD8 cohort: 5,353,450 cells, all tissues (blood 76.7%).
-
-Batch key defaults to dataset_id (94 levels here) -- the CELLxGENE census study
-identifier, and the analogue of the sample_id used in the earlier three-way
-integration.  donor_id (4,707 levels) is available but is biological as well as
-technical, and Harmony's per-level correction becomes ill-posed when many levels
-hold only a handful of cells.
-
-WHAT IS MEASURED, not asserted: for every PC, the fraction of variance explained
+For every PC, the fraction of variance explained
 by the batch factor (a one-way ANOVA eta^2) before and after correction.  That
 is the quantity Harmony exists to shrink, so reporting it both ways is the
 check that the run did something, and how much.  Cell-type eta^2 is reported on
@@ -24,7 +16,7 @@ Outputs (--out-dir):
 import argparse, json, os, time
 import numpy as np, pandas as pd
 
-ROOT = "/home/mnt/weka/nzh/nzhanglab/project/emiliac/FM_effective"
+ROOT = "/"
 DEF  = os.path.join(ROOT, "results/poisson/task8_scGPTemb2gex")
 
 ap = argparse.ArgumentParser()
@@ -53,8 +45,8 @@ KEYS = [k.strip() for k in A.batch_key.split(",")]
 for k in KEYS:
     assert k in obs.columns, f"'{k}' not in obs"
 TAG = "_".join(KEYS)          # filename tag; single key keeps the old names
-# eta2 is reported against the COMPOSITE of the keys, so the number means "any
-# batch factor" rather than only the first one
+# eta2 is reported against the COMPOSITE of the keys
+
 obs["_batch"] = obs[KEYS].astype(str).agg("|".join, axis=1) if len(KEYS) > 1 else obs[KEYS[0]]
 log(f"{N:,} cells x {K} PCs; batch {KEYS} "
     f"({obs['_batch'].nunique()} composite levels), label '{A.label_key}' "

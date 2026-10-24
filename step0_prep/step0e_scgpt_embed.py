@@ -1,24 +1,11 @@
 #!/usr/bin/env python
 """Embed the AIFI atlas with scGPT, in resumable blocks.
-
-RESUME.  gpu.q caps every job at 4 h, and a burst instance's speed is not known
-in advance.  So the work is cut into fixed global blocks named by their cell
-range; a finished block is written to disk and skipped on restart.  Hitting the
-wall clock therefore costs at most one partial block, and resubmitting the same
-array job continues where it stopped.
-
-The model is built and loaded ONCE per job and reused across blocks -- calling
-scgpt's embed_data per block would reload 51 M params every time.
-
-DETERMINISM.  scGPT's collator uses sampling=True: a cell with more expressed
-genes than max_length gets a RANDOM subset.  On the HVG matrix no cell comes
-close, and that is asserted per block rather than assumed.
 """
 import argparse, json, os, time, glob
 import numpy as np, pandas as pd, torch, anndata as ad
 from scipy.sparse import load_npz
 
-ROOT = "/home/mnt/weka/nzh/nzhanglab/project/emiliac/FM_effective"
+ROOT = "/"
 DEF  = os.path.join(ROOT, "data/scGPT_related/mat/Gong_immuneAtlas")
 
 ap = argparse.ArgumentParser()
@@ -88,7 +75,7 @@ log(f"{len(mine) - len(todo)} blocks already done, {len(todo)} to do")
 if not todo:
     log("nothing to do"); raise SystemExit(0)
 
-# ---------------------------------------------------------------- model, once
+# ---------------------------------------------------------------- model
 from scgpt.model import TransformerModel
 from scgpt.tokenizer import GeneVocab
 from scgpt.utils import load_pretrained

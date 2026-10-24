@@ -1,10 +1,6 @@
 #!/usr/bin/env python
 """PCA on the CELLxGENE CD8 HVG matrix, streamed.
 
-Run on the UMI-based CD8 cohort: 5,353,450 cells x 3000 HVGs, 94 datasets,
-4,707 donors, 44 tissues (blood 76.7%, then lung, lymph node, small intestine,
-kidney, ...).  All tissues, not blood only -- the Census query filters on the
-17 CD8 cell-type ontology terms and is_primary_data, never on tissue.
 
 The z-scored matrix would be ~60 GiB dense, so it is never materialised:
 because log1p(0) = 0, the lognorm layer has EXACTLY the counts' sparsity, and

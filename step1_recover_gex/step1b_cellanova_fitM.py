@@ -1,26 +1,6 @@
 #!/usr/bin/env python
-"""CellANOVA fit_M by streaming accumulation -- no 64.6 GB scale matrix.
+"""CellANOVA fit_M by streaming accumulation
 
-main_effect_cd8.py needs layers['scale'] on disk because it hands the whole
-matrix to fit_M.  But fit_M is, per integration level x,
-
-    B_x = lstsq(C_x, S_x)  =  pinv(C_x^T C_x) @ (C_x^T S_x)
-    Mmat = mean over good levels of B_x
-
-and BOTH C_x^T C_x (d x d) and C_x^T S_x (d x G) are sums over cells, so they
-accumulate over row blocks.  For 110 levels that is 110 x (50x50 + 50x3000)
-floats = 133 MB in RAM, against a 64.6 GB memmap on disk.
-
-The same single pass also collects everything pass 2 needs:
-    obs_tot    HVG row sums of the observed counts
-    ceil_tab   per (clip group, gene) max of the observed lognorm
-
-S is rebuilt on the fly as (log1p(counts / L_c * target_sum) - mu_g) / sd_g,
-using the SAME genestats the PCA wrote, so it is the identical quantity
-scale_cd8.py would have materialised.
-
---validate PATH checks the resulting Mmat against a previously computed one
-(e.g. the normal-donor run) before trusting this route.
 """
 import argparse, json, os, time
 import h5py, numpy as np, pandas as pd

@@ -96,6 +96,13 @@ def main():
                          "better.  A ratio to the chosen operating point asks "
                          "the answerable question instead: what does moving the "
                          "threshold cost or buy?")
+    ap.add_argument("--nominal", type=float, default=0.0,
+                    metavar="N",
+                    help="nominal token count; each cell then also shows the "
+                         "effective/nominal share.  For a scGPT-style corpus "
+                         "over this cohort that is 5,353,450 cells x 1200 input "
+                         "genes = 6.4242e9 -- i.e. what the corpus would be "
+                         "worth if every cell x gene slot carried signal.")
     ap.add_argument("--ramp-max", type=float, default=1.0,
                     help="use only the first fraction of the colour ramp, so "
                          "the darkest cell lands mid-ramp and the whole map "
@@ -236,8 +243,18 @@ def main():
                     txt = "\u2014" if not np.isfinite(v) else f"{v:.2f}\u00d7"
                 else:
                     txt = f"{v/1e6:.0f}" if v >= 1e7 else f"{v/1e6:.1f}"
-                ax.text(j, i, txt, ha="center", va="center", fontsize=cfs,
-                        zorder=2, color="white" if _lum(rgba) < 0.45 else INK)
+                ink = "white" if _lum(rgba) < 0.45 else INK
+                if A.nominal and REL is None and MARG is None:
+                    # value above, effective/nominal share below
+                    pct = 100.0 * v / A.nominal
+                    ax.text(j, i - 0.17, txt, ha="center", va="center",
+                            fontsize=cfs, zorder=2, color=ink)
+                    ax.text(j, i + 0.20, f"{pct:.2f}%",
+                            ha="center", va="center", fontsize=cfs * 0.66,
+                            zorder=2, color=ink, alpha=0.62)
+                else:
+                    ax.text(j, i, txt, ha="center", va="center", fontsize=cfs,
+                            zorder=2, color=ink)
         if A.highlight and MARG is None:
             hcv, hw = (float(v) for v in A.highlight.split(","))
             if hcv in cvs and hw in ws_plot:

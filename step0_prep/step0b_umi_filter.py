@@ -6,7 +6,7 @@ recounted, so a dataset that falls below the threshold only after losing its
 Smart-seq2 cells is also dropped.
 """
 import pandas as pd, numpy as np, json
-D = "/home/mnt/weka/nzh/nzhanglab/project/emiliac/FM_effective/results/poisson/task8_scGPTemb2gex"
+D = "results/poisson/task8_scGPTemb2gex"
 DROP = ["Smart-seq2", "BD Rhapsody Targeted mRNA"]
 MIN = 1000
 o = pd.read_csv(f"{D}/all_CD8T/allcd8_obs.csv.gz",

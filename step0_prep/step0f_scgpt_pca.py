@@ -6,20 +6,6 @@ whole:
   pass 1  accumulate sum and X^T X  ->  mean and covariance (512 x 512)
   pass 2  centre and project onto the top d eigenvectors
 
-Only the (N x d) output is materialised: 5,381,464 x 50 float32 = 1.08 GB.
-
-Covariance PCA, centred, unscaled -- the same basis scgpt_pca_scree.py used to
-pick d, and what a euclidean-metric consumer downstream sees.
-
-WHY THIS FEEDS CellANOVA.  fit_M solves, per integration level x,
-    B_x = pinv(C_x^T C_x) @ (C_x^T S_x),   Mmat = mean_x B_x
-so C enters only through its column space.  Over the FULL 512 components PCA is
-an orthogonal reparametrisation and Mmat would be unchanged; truncating to d < 512
-is a projection and genuinely changes the fit -- that truncation is the point of
-the exercise, not an incidental detail.
-
-Eigenvector signs are fixed (largest-|value| entry made positive) so reruns are
-bit-comparable.
 """
 import argparse, glob, json, os, re, time
 

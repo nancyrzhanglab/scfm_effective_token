@@ -1,13 +1,5 @@
 #!/usr/bin/env python
-"""Build the scGPT input for the full all-tissue CD8 set (5.38M cells).
-
-Same contract as prep_scgpt_normal.py, with two changes forced by scale:
-
-1. The gene->symbol map is built inline from hvg_var.csv (which already carries
-   feature_name) instead of a separate HGNC pass -- the census gives symbols.
-2. TWO-PASS streaming instead of vstack(blocks): the block list plus the final
-   matrix would hold the data twice (~7 GB each).  Pass 1 counts nonzeros per
-   cell in the usable columns, pass 2 fills preallocated arrays.
+"""Build the scGPT input for the CD8 set.
 
 Cells left with NO expressed usable gene cannot be tokenised.  They are dropped
 and their positions recorded in *_scgpt_rowidx.npy, so the embedding rows can
@@ -27,8 +19,11 @@ ap.add_argument("--block", type=int, default=250_000)
 A = ap.parse_args()
 t0 = time.time(); log = lambda m: print(f"[{time.time()-t0:8.1f}s] {m}", flush=True)
 
+# read data
 vocab = json.load(open(A.vocab))
 var = pd.read_csv(A.var_csv)
+
+# map gene symbol and token
 sym = var.feature_name.astype(str).to_numpy()
 inv = np.array([s in vocab for s in sym])
 first = ~pd.Series(sym).duplicated().to_numpy()      # a symbol maps to one token
