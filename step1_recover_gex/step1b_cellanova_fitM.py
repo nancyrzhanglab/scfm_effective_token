@@ -1,5 +1,13 @@
 #!/usr/bin/env python
-"""CellANOVA fit_M by streaming accumulation
+"""CellANOVA fit_M 
+
+Regress expression on the cell embedding for each dataset to obtain a regression matrix
+to convert between embedding and expression.
+
+Then take an average of the regression matrix across dataset to obtain Mmat which represent
+the main effect of cell state on gene expression.
+
+Reimplementation of CellANOVA to only compute the Main Effect
 
 """
 import argparse, json, os, time
@@ -23,6 +31,7 @@ ap.add_argument("--validate", default="")
 a = ap.parse_args()
 t0 = time.time(); log = lambda m: print(f"[{time.time()-t0:8.1f}s] {m}", flush=True)
 
+# read data
 gs = pd.read_csv(os.path.join(a.in_dir, f"{a.prefix}_genestats.csv"))
 mu_g = gs.ln_mean.to_numpy(np.float64); sd_g = gs.ln_std.to_numpy(np.float64)
 sd_safe = np.where(sd_g > 0, sd_g, 1.0)
@@ -38,6 +47,8 @@ N, d, G = C.shape[0], C.shape[1], len(mu_g)
 assert len(L_c) == N == len(lev) == len(gcode)
 log(f"{N:,} cells x {G} genes, d={d}, {Ln} levels of {a.integrate_key}, {n_grp} clip groups")
 
+# compute cell embedding matrix inner product, cross-product between embedding and normalized expression,
+# observed cell total, gene-specific ceiling, and integration level
 Gxx = np.zeros((Ln, d, d)); Pxy = np.zeros((Ln, d, G))
 obs_tot = np.zeros(N); ceil_tab = np.zeros((n_grp, G))
 lev_n = np.bincount(lev, minlength=Ln)
@@ -65,6 +76,7 @@ with h5py.File(a.h5ad, "r") as f:
         if (lo // a.block) % 5 == 0: log(f"  {hi:,}/{N:,}")
 log("accumulation done")
 
+# least-squares fit between expression and embedding
 small = np.flatnonzero(lev_n < a.min_cells) if a.min_cells else np.array([], int)
 B = np.zeros((Ln, d, G)); rank = np.zeros(Ln, int); cond = np.zeros(Ln)
 for x in range(Ln):
@@ -75,6 +87,8 @@ for x in range(Ln):
 bad = set(np.flatnonzero(rank < d).tolist()) | set(small.tolist())
 good = np.array([x for x in range(Ln) if x not in bad])
 assert len(good) > 0, "every level is rank-deficient"
+
+# compute Mmat by taking average across regression matrices
 Mmat = B[good].mean(0)
 log(f"Mmat = mean over {len(good)} of {Ln} levels "
     f"({int((rank<d).sum())} rank-deficient, {len(small)} below --min-cells)")
@@ -85,14 +99,7 @@ if a.validate:
     log(f"VALIDATE against {os.path.basename(a.validate)}: max rel diff {rel:.3g}")
     assert rel < 1e-6, "streamed fit_M disagrees with the reference Mmat"
 
-# A small clip group's ceiling is a max over too few observations, so fall back
-# to the global per-gene max for it.  The guard MUST test CLIP-GROUP sizes.  It
-# previously tested lev_n -- the per-integration-level counts, an unrelated
-# vector -- so the fallback fired or not for reasons having nothing to do with
-# group size.  On the normal-donor cohort that suppressed it entirely: a 1-cell
-# clip group kept its own 1-observation ceiling because no dataset_id level
-# happened to fall under 50.  (No effect on the all-CD8 run, whose 16 groups are
-# all >= 336 cells, so the artefact built before this fix is unchanged.)
+# make sure the gene-and-group-specific ceiling is not taken on only a few cells
 grp_n = np.bincount(gcode, minlength=n_grp)
 sm = np.flatnonzero(grp_n < a.min_group)
 if sm.size:
@@ -101,6 +108,8 @@ if sm.size:
         f"the global per-gene ceiling; sizes {grp_n[sm].tolist()}")
 else:
     log(f"all {n_grp} clip groups >= {a.min_group} cells; no ceiling fallback needed")
+
+# write output
 O = a.out_dir
 np.save(os.path.join(O, f"{a.prefix}_{a.tag}_Mmat_{a.integrate_key}.npy"), Mmat)
 np.save(os.path.join(O, f"{a.prefix}_ceiling_table.npy"), ceil_tab)

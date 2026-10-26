@@ -1,27 +1,17 @@
 #!/usr/bin/env python
 """Convert the CellANOVA main effect to count scale, one row shard per task.
 
-Pass 2 of convert_to_counts_task8.py is row-independent given Mmat, the ceiling
-table and obs_tot, so it parallelises across row ranges writing DISJOINT slices
-of one preallocated .npy -- no concatenation, no per-shard files.
+For each dataset, compute the recovered gene expression rate given Mmat, 
+and can be parallelised
 
     lnr    = (C @ Mmat) * sd_g + mu_g
     clip   -> [0, ceil[group, gene]]
     counts = expm1(lnr) * L_c / target_sum
     renorm -> each cell's HVG total matched to its observed HVG total
 
-Only the renormalised matrix is written; the clip-only version is not kept.
+Only the renormalised matrix is written.
 --init preallocates the output once before the array runs.
 
-WRITE PATH -- do not revert to mmap.  An earlier version mapped the shared
-output MAP_SHARED and assigned into row slices.  When the array runs on more
-than one host (job 1423187 spread 16 tasks over 5 nodes) weka drops a client's
-cached pages for a file as soon as another client writes it, so dirty pages
-that were never synced are lost: the 64.6 GB artefact read back as all zeros.
-Worse, the check below read the process's own page cache and so PASSED for the
-two tasks that happened to share a host -- a silent false negative.  Positional
-pwrite() + fsync is coherent across nodes, and the check now re-reads through
-the same descriptor with ordinary read() syscalls, never through a mapping.
 """
 import argparse, json, os, time
 import numpy as np, pandas as pd
@@ -44,6 +34,7 @@ ap.add_argument("--init", action="store_true", help="preallocate the output and 
 a = ap.parse_args()
 t0 = time.time(); log = lambda m: print(f"[{time.time()-t0:8.1f}s] s{a.shard}: {m}", flush=True)
 
+# read data
 gs = pd.read_csv(os.path.join(a.in_dir, f"{a.prefix}_genestats.csv"))
 mu_g = gs.ln_mean.to_numpy(np.float64); sd_g = gs.ln_std.to_numpy(np.float64)
 L_c = np.load(os.path.join(a.in_dir, f"{a.prefix}_libsize.npy")).astype(np.float64)
@@ -57,7 +48,7 @@ if a.init:
 
 
 def npy_data_offset(path, want_shape):
-    """Byte offset of the first data element, verified against the header."""
+    """Byte offset of the first data element for header, verified against the header."""
     with open(path, "rb") as f:
         ver = np.lib.format.read_magic(f)
         shape, fortran, dtype = np.lib.format._read_array_header(f, ver)
@@ -87,11 +78,11 @@ fh = open(a.out, "r+b", buffering=0)
 clipped = nonzero = 0
 for lo in range(LO, HI, a.chunk):
     hi = min(lo + a.chunk, HI)
-    lnr = (np.asarray(C[lo:hi], np.float64) @ Mmat) * sd_g[None, :] + mu_g[None, :]
+    lnr = (np.asarray(C[lo:hi], np.float64) @ Mmat) * sd_g[None, :] + mu_g[None, :] # revert the normalization step
     ceil = ceil_tab[gcode[lo:hi]]
     clipped += int((lnr > ceil).sum()); nonzero += int((lnr > 0).sum())
     np.clip(lnr, 0.0, ceil, out=lnr); del ceil
-    c = np.expm1(lnr) * sf[lo:hi, None]; del lnr
+    c = np.expm1(lnr) * sf[lo:hi, None]; del lnr # revert to count scale and match to HVG library size
     tot = c.sum(1)
     c *= np.where(tot > 0, obs_tot[lo:hi] / np.maximum(tot, 1e-300), 0.0)[:, None]
     blk = np.ascontiguousarray(c, dtype=np.float32); del c
@@ -104,7 +95,7 @@ fh.flush(); os.fsync(fh.fileno())
 
 
 def read_rows(idx):
-    """Read individual rows with ordinary read() syscalls -- never a mapping."""
+    """Read individual rows with ordinary read() syscalls."""
     out = np.empty((len(idx), G), np.float32)
     for k, r in enumerate(idx):
         fh.seek(DATA_OFF + int(r) * ROW)
@@ -114,21 +105,13 @@ def read_rows(idx):
     return out
 
 
-# Sample uniformly across the WHOLE shard: the previous check read only the
-# first 5,000 rows, which is exactly the region a stale mapping serves best.
+# Sample uniformly across the whole shard to verify reconstruction sums up to the rigth total.
 ns = min(a.check_rows, HI - LO)
 ridx = np.linspace(LO, HI - 1, ns).astype(np.int64)
 chk = read_rows(ridx).astype(np.float64)
 ot = obs_tot[ridx]
-rel = np.abs(chk.sum(1) - ot) / np.maximum(ot, 1e-12)
-# A row whose target total is 0 is written all-zero on purpose -- the renorm
-# line above multiplies it by 0 -- so it is not evidence of a lost write.  That
-# is the normal case for a cohort where some cells are excluded upstream: the
-# task11 simulation leaves 28,014 non-UMI cells out, and because the cohort is
-# ordered by dataset they pile into a few shards (5.4% of shard 0), which made
-# this check fail on exactly the four shards that contain them while the data
-# was in fact complete.  Only a row that should have content and came back
-# empty means the write did not persist.
+rel = np.abs(chk.sum(1) - ot) / np.maximum(ot, 1e-12) # check total count matches with observed total
+
 expect_zero = ot <= 0
 got_zero = chk.sum(1) <= 0
 nzero = int((got_zero & ~expect_zero).sum())

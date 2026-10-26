@@ -1,18 +1,9 @@
 #!/usr/bin/env python
 """Nested metacells by recursive Leiden, target mean sizes 512 -> 2.
 
-Same construction as task5/build_metacells_leiden.py: a max-heap of pools, pop
-the largest, Leiden-split it, push the children, stop when the pool count
-reaches N/mean.  Because the recursion only ever SPLITS, the ladder is strictly
-nested by construction and coverage is 1.0 at every rung -- and that nesting is
-ASSERTED here between consecutive rungs, not assumed.
-
-TWO CHANGES FOR SCALE (task5 ran on 255k cells; this is 1.96M):
-  * the igraph is built from the scipy sparse adjacency directly.  task5 does
-    ig.Graph(n=N, edges=list(zip(...))), which at ~59M undirected edges would
-    materialise 59M Python tuples.
-  * every rung is written as soon as it is reached, so a run that is too slow
-    to reach mean=2 still leaves 512..k usable on disk.
+A max-heap of pools, pop the largest, Leiden-split it, push the children, stop 
+when the pool count reaches N/mean. Because the recursion only ever splits, the 
+ladder is strictly nested by construction and coverage is 1.0 at every rung.
 
 Outputs (--out-dir):
     metacell_labels_<prefix>_leiden.npz    lab_mean{k}_leiden_s0 : int32 (N,)
@@ -38,8 +29,8 @@ t0=time.time(); log=lambda m: print(f"[{time.time()-t0:8.1f}s] {m}", flush=True)
 TM=[int(x) for x in A.target_means.split(",")]
 assert TM==sorted(TM, reverse=True), "--target-means must be descending"
 # k=1 is the identity partition (every cell its own metacell).  Leiden cannot
-# split a single-vertex subgraph, so it is emitted directly rather than chased
-# by the splitter, which would just stall on every pool.
+# split a single-vertex subgraph, so it is emitted directly.
+
 WANT_ONE = 1 in TM
 TM = [t for t in TM if t > 1]
 log(f"args: {vars(A)}")

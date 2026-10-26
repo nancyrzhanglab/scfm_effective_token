@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 """Approximate kNN on the Harmony embedding, for the metacell ladder.
 
-task5's build_knn.py is EXACT kNN, which is O(N^2) and impossible at 4.13M
-cells.  pynndescent gives the same graph to within a small recall loss at a
+Building the exact kNN is O(N^2) and impossible at 5.35M cells.
+pynndescent gives the same graph to within a small recall loss at a
 fraction of the cost.  Recall is measured against brute force on a random
-sample rather than assumed.
+sample.
 """
 import argparse, json, os, time
 import numpy as np

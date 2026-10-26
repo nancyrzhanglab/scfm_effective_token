@@ -65,6 +65,12 @@ def main():
                          "side panels: median_CV, share_between (between/total) "
                          "or share_within (within/total)")
     ap.add_argument("--h5ad", required=True, help="for the gene-name -> index map")
+    ap.add_argument("--between-col", default="share_between",
+                    choices=["share_between", "share_between1"],
+                    help="which LTV split to plot: share_between weights each cell "
+                         "by its count total N_c (the original), share_between1 "
+                         "weights each cell 1 (cv_ltv_weighting_compare.py).  The "
+                         "within/between/total components follow the same choice.")
     ap.add_argument("--curve", action="append", required=True,
                     metavar="LABEL::CURVES_CSV[::META_JSON]",
                     help="repeatable; '::' separated so labels may contain '='")
@@ -114,6 +120,10 @@ def main():
         d = d[d["gene"] == gi].sort_values("k")
         if d.empty:
             raise SystemExit(f"{label}: no rows for gene {gi}")
+        if args.between_col != "share_between":
+            assert args.between_col in d, f"{label}: no {args.between_col} column in {path}"
+            d = d.assign(share_between=d[args.between_col], within=d["within1"],
+                         between=d["between1"], total=d["total1"])
         src = os.path.basename(str(meta.get("counts", "?")))
         series.append((label, d, src))
         d = d.assign(share_within=1.0 - d["share_between"])

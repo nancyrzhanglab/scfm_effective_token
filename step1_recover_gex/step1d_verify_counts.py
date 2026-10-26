@@ -1,10 +1,5 @@
 #!/usr/bin/env python
-"""Independent whole-matrix check on the CellANOVA count artefact.
-
-Deliberately NOT the per-shard self-check: this runs in a separate process
-after every task has exited, streams the file with ordinary reads, and covers
-all N rows -- the failure mode it exists to catch (job 1423187) passed the
-per-shard check on two tasks while the file on disk was empty.
+"""Independent whole-matrix check on the CellANOVA count against the observed data.
 """
 import argparse, json, time
 import numpy as np
@@ -17,12 +12,16 @@ ap.add_argument("--tol", type=float, default=1e-4)
 a = ap.parse_args()
 t0 = time.time(); log = lambda m: print(f"[{time.time()-t0:8.1f}s] {m}", flush=True)
 
+# read data
 obs = np.load(a.obs_tot).astype(np.float64)
 R = np.load(a.counts, mmap_mode="r")
 N, G = R.shape
-assert len(obs) == N, f"obs_tot {len(obs):,} != {N:,} rows"
+assert len(obs) == N, f"obs_tot {len(obs):,} != {N:,} rows" # check shape matches
 log(f"{N:,} x {G} ({N*G*4/1e9:.1f} GB)")
 
+# loop to check: 1) number of negative entries, 2) number of zeros, 
+# 3) relative reconstruction difference (should be smaller than a tolerance level)
+ 
 nzero = 0; worst = 0.0; worst_row = -1; nbad = 0; nneg = 0
 for lo in range(0, N, a.chunk):
     hi = min(lo + a.chunk, N)

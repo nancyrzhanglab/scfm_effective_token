@@ -1,20 +1,8 @@
 #!/usr/bin/env python
-"""Step 2 of 3 -- run SEACells on one pile to build the BASE rung (k=16).
-
-One array task per pile.  The task fits kernel archetypal analysis on the pile's
-Harmony coordinates and writes a hard cell->metacell assignment plus the
-size-weighted metacell centroid in Harmony space, which is all step 3 needs.
+"""Step 2 of 3 -- run SEACells on one pile to build the BASE rung (k=64).
 
 n_SEACells = round(n_pile / target_size), so the MEAN metacell size is the target
 by construction; the realised size distribution is recorded and is not uniform.
-
-NOTE ON target_size=16.  The SEACells paper operates near ~75 cells per metacell.
-Sixteen is well below that design point: fewer cells per archetype means the
-archetype is pinned by less data and the soft-assignment matrix is larger, so
-both the fit quality and the runtime are worse than the paper's regime.  It is
-the base of a nested ladder here, not an end product -- the coarse rungs that
-matter most are reached by merging, and merging averages away part of the base
-noise.  Recorded here so the choice is visible at the point it takes effect.
 
 NO COUNT MATRIX IS LOADED.  The archetypal fit reads only ad.obsm; ad.X is
 touched solely by summarize_by_SEACell(), which is not called.  X is therefore a
@@ -50,6 +38,8 @@ ap.add_argument("--n-waypoint-eigs", type=int, default=10)
 ap.add_argument("--max-iter", type=int, default=100)
 ap.add_argument("--min-iter", type=int, default=10)
 ap.add_argument("--epsilon", type=float, default=1e-3)
+ap.add_argument("--seed", type=int, default=0,
+                help="seeds numpy's global RNG, which SEACells draws from unseeded")
 ap.add_argument("--force", action="store_true")
 A = ap.parse_args()
 
@@ -59,6 +49,7 @@ if os.path.exists(out) and not A.force:
     log(f"{os.path.basename(out)} exists, skipping (--force to redo)")
     sys.exit(0)
 
+# read data
 piles = np.load(A.piles)
 rows = np.flatnonzero(piles == A.pile)
 n = len(rows)
@@ -75,7 +66,7 @@ log(f"pile {A.pile}: {n:,} cells x {D} dims -> {n_mc:,} SEACells "
 
 adata = ad_mod.AnnData(X=np.zeros((n, 1), dtype=np.float32))
 adata.obs_names = rows.astype(str)
-adata.obsm["X_harmony"] = X
+adata.obsm["X_harmony"] = X # here "X_harmony" is just a label name, not necessarily only holds Harmony embedding, and can be others
 
 t0 = time.time()
 model = SEACells.core.SEACells(
@@ -102,7 +93,7 @@ K = len(uniq)
 sz = np.bincount(loc, minlength=K)
 assert sz.min() > 0
 
-# size-weighted centroid == plain mean of member cells, which is what Ward needs
+# compute metacell centroid and use in step2g Ward merge to repeatly merge base metacells
 cent = np.zeros((K, D), np.float64)
 np.add.at(cent, loc, X.astype(np.float64))
 cent /= sz[:, None]
@@ -119,7 +110,8 @@ np.savez_compressed(
     meta=np.array(json.dumps({
         "pile": A.pile, "n_cells": int(n), "n_requested": int(n_mc),
         "n_realised": int(K), "target_size": A.target_size,
-        "n_neighbors": A.n_neighbors, "iters": int(len(model.RSS_iters)),
+        "n_neighbors": A.n_neighbors, "seed": A.seed + A.pile,
+        "iters": int(len(model.RSS_iters)),
         "seconds": round(time.time() - t0, 1),
     })),
 )

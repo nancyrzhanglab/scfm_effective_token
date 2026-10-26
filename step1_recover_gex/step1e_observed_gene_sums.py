@@ -1,16 +1,10 @@
 #!/usr/bin/env python
-"""Per-gene totals of the OBSERVED counts, over the whole cohort.
+"""Per-gene totals of the observed counts, over the whole cohort.
 
 step3's --gene-obs: the denominator of its calibration line, which reports
-sum(reconstructed)/sum(observed) per gene.  The companion per-CELL totals
-(observed_hvg_libsize.npy) fall out of step1b's single pass over the matrix;
-the per-GENE totals did not, and this fills that gap.
+sum(reconstructed)/sum(observed) per gene. 
 
     out[g] = sum over all cells of X[c, g]      X = raw counts, the h5ad's X
-
-X is a CSR of 5,381,464 x 3000 with 6.28e8 nonzeros, so it is streamed over the
-`data`/`indices` arrays and accumulated with bincount -- indptr is never needed,
-because a column sum does not care which row a value came from.
 
 The result is float64 and its total equals sum(observed_hvg_libsize.npy)
 exactly, which --check asserts: both are the same sum taken along different
@@ -44,7 +38,7 @@ with h5py.File(A.h5ad, "r") as f:
         hi = min(lo + A.block, nnz)
         d = np.asarray(X["data"][lo:hi], np.float64)
         i = np.asarray(X["indices"][lo:hi], np.int64)
-        out += np.bincount(i, weights=d, minlength=n_genes)
+        out += np.bincount(i, weights=d, minlength=n_genes) # sum each gene's total count within the block
         log(f"  {hi:,}/{nnz:,}")
 
 np.save(A.out, out)

@@ -52,6 +52,13 @@ def main():
                     metavar="LABEL::CSV")
     ap.add_argument("--reference", default="",
                     help="label whose lam_bar defines the deciles; default the first")
+    ap.add_argument("--between-col", default="share_between",
+                    choices=["share_between", "share_between1"],
+                    help="which LTV split to plot: share_between weights each cell "
+                         "by its count total N_c (the original), share_between1 "
+                         "weights each cell 1 (cv_ltv_weighting_compare.py).  "
+                         "Deciles are still cut on lam_bar either way, so both "
+                         "versions describe the same genes.")
     ap.add_argument("--decile", type=int, default=10)
     ap.add_argument("--n-deciles", type=int, default=10)
     ap.add_argument("--metrics", default="median_CV,share_within")
@@ -82,6 +89,10 @@ def main():
     for spec in args.curves:
         label, path = spec.split("::")
         d = pd.read_csv(path)
+        if args.between_col != "share_between":
+            assert args.between_col in d, f"{label}: no {args.between_col} column in {path}"
+            d = d.assign(within=d["within1"], between=d["between1"],
+                         total=d["total1"], share_between=d[args.between_col])
         # the curve files carry within/between/total and share_between; the
         # ratio this project reads is within/total, so derive it once here
         if "share_within" not in d:
@@ -100,6 +111,10 @@ def main():
           f"lam_bar {lb[list(genes)].min():.2e} - {lb[list(genes)].max():.2e}")
 
     floor = None
+    # the floor is divided by the reference curve's total; with the w=1 split
+    # that total is total1 while the simulation's within is N_c-weighted
+    assert not (args.floor and args.between_col != "share_between"), \
+        "--floor has only an N_c-weighted within; not valid with --between-col share_between1"
     if args.floor:
         flab, fpath = args.floor.split("::")
         fd = pd.read_csv(fpath)

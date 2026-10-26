@@ -50,13 +50,14 @@ cap = int(A.max_frac * A.target)
 floor_ = int(A.min_frac * A.target)
 log(f"target {A.target:,}/pile -> {n_piles} piles | cap {cap:,} | floor {floor_:,}")
 
+# run k-means to get a first set of piles
 km = MiniBatchKMeans(n_clusters=n_piles, random_state=A.seed, batch_size=8192,
                      n_init=3, max_iter=200, reassignment_ratio=0.01, verbose=0)
 lab = km.fit_predict(E).astype(np.int32)
 cnt = np.bincount(lab, minlength=n_piles)
 log(f"k-means: sizes min {cnt.min():,} median {int(np.median(cnt)):,} max {cnt.max():,}")
 
-# --- split oversized piles by recursive 2-means -----------------------------------
+# split oversized piles by recursive 2-means as dense regions produce large piles
 nxt = n_piles
 work = [p for p in range(n_piles) if cnt[p] > cap]
 rounds = 0
@@ -83,7 +84,7 @@ while work:
         raise RuntimeError("splitting did not converge")
 log(f"after {rounds} split rounds: {nxt} piles, max {np.bincount(lab).max():,}")
 
-# --- absorb undersized piles ------------------------------------------------------
+# absorb undersized piles
 lab = np.unique(lab, return_inverse=True)[1].astype(np.int32)
 P = int(lab.max()) + 1
 cnt = np.bincount(lab, minlength=P)

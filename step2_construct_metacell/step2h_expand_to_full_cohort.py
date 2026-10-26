@@ -1,15 +1,8 @@
 #!/usr/bin/env python
-"""Lift the task10 SEACells+Ward labels from the filtered cohort to the full one.
-
-task10 was built on allcd8f_harmony_dataset_id.npy -- the FILTERED cohort of
-5,353,450 cells (94 datasets) -- while the reconstruction and the cv/ltv machinery
-are indexed by the full 5,381,464-row h5ad.  allcd8_filtered_rowidx.npy is the map
-between them.
+"""Index SEACells+Ward labels from the 5.35M cohort to the 5.38M cohort since that stores the full data downloaded
 
 Cells outside the filtered set get label -1.  cv_ltv_vs_k_task10.py drops those
-from BOTH the pooled terms and the totals, so the LTV closure still holds; the
-unpatched task8 script would not (its Wtot runs over all N cells) and would trip
-its own closure assertion.
+from BOTH the pooled terms and the totals, so the LTV closure still holds.
 """
 import argparse, os
 import numpy as np

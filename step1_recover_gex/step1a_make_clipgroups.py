@@ -3,9 +3,11 @@
 
 The ceiling table is computed per (group, gene); groups here are cell_type
 levels, so a cell's reconstructed log-rate is clipped at the max observed for
-its own cell type rather than a global maximum.  Idempotent: if the output
-already exists with the right length it is left alone.
+the given cell type. 
+
+This step collect the groups existing in data.
 """
+
 import argparse, os
 import numpy as np, pandas as pd
 
@@ -24,13 +26,13 @@ if os.path.exists(a.out):
     raise SystemExit(0)
 
 o = pd.read_csv(a.obs, usecols=[a.col], low_memory=False)
-c = pd.Categorical(o[a.col])
+c = pd.Categorical(o[a.col]) # get the group names
 if a.expect_n and len(c) != a.expect_n:
     raise SystemExit(f"{a.obs} has {len(c):,} rows, expected {a.expect_n:,}")
 assert (c.codes >= 0).all(), f"{(c.codes < 0).sum()} NaN values in {a.col}"
 
 tmp = a.out + f".tmp{os.getpid()}.npy"
-np.save(tmp, c.codes.astype(np.int32))
+np.save(tmp, c.codes.astype(np.int32)) # save group names
 os.replace(tmp, a.out)
 
 b = np.bincount(c.codes)
