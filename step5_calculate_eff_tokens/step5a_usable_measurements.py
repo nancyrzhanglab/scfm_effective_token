@@ -1,10 +1,17 @@
 #!/usr/bin/env python
-"""task10: usable measurements against metacell size.
+"""Usable measurements against metacell size.
 
 For each k: (number of metacells) x (number of genes that pass both the
 precision and the homogeneity target at that k). Pooling trades the first
 factor against the second -- metacells halve with every step up the ladder,
 while the set of well-measured genes grows -- and this is the product.
+
+--cumulative instead counts each gene once, per gene:
+
+    k_min(g)   = the smallest k at which g passes BOTH cuts
+    usable     = sum over genes of n_metacells(k_min(g))
+
+and usable_cumulative(k) is that sum over the genes with k_min(g) <= k.
 """
 import argparse, os
 import numpy as np
@@ -50,12 +57,12 @@ def main():
                     help="size of the numbers on the bars and points; 0 derives "
                          "it from the axis size")
     ap.add_argument("--cumulative", action="store_true",
-                    help="bank each gene ONCE, at the first rung where it passes, "
-                         "and count it at that rung's metacell number: "
-                         "usable(k) = usable(k-1) + n_metacells(k) * |genes newly "
-                         "passing at k|.  The default instead re-counts every "
-                         "passing gene at every rung, which asks a different "
-                         "question -- what one rung alone would give you.")
+                    help="bank each gene ONCE, at k_min(g), the smallest rung where "
+                         "it passes both cuts, and count it at that rung's metacell "
+                         "number: usable = sum over genes of n_metacells(k_min(g)).  "
+                         "The default instead re-counts every passing gene at every "
+                         "rung, which asks a different question -- what one rung "
+                         "alone would give you.")
     ap.add_argument("--suffix", default="",
                     help="appended to the output names so threshold variants do "
                          "not overwrite each other")
@@ -64,27 +71,30 @@ def main():
     os.makedirs(os.path.dirname(args.out_prefix), exist_ok=True)
 
     d = pd.read_csv(args.curves)
-    d["within"] = 1.0 - d["share_between"]
+    # within/total from the UNWEIGHTED law-of-total-variance split (w_c = 1,
+    # share_between1), the one the reported totals use.  Only the curves written
+    # by cv_ltv_weighting_compare.py (*_wcmp*) carry it.
+    assert "share_between1" in d, \
+        f"{args.curves} has no share_between1 -- use a cv_ltv_weighting_compare.py curves file"
+    d["within"] = 1.0 - d["share_between1"]
     diag = pd.read_csv(args.diag).set_index("k")
+    # Each gene is banked once, at k_min(g): the smallest rung where it passes
+    # BOTH cuts, and counts n_metacells(k_min(g)) measurements.  A gene that
+    # passes at one rung and fails at the next (within/total grows with k) is
+    # still banked at its first passing rung; a gene that never passes adds 0.
+    #     usable_cumulative(k) = sum over genes with k_min(g) <= k of n_metacells(k_min(g))
+    d["passes"] = (d.median_CV <= args.cv_cut) & (d["within"] <= args.within_cut)
+    npool = diag["n_pools"].astype(int)
+    k_min = d[d.passes].groupby("gene").k.min()
+    banked = k_min.map(npool)                   # metacells counted per gene
     rows = []
-    banked = set()          # genes already counted at a finer rung
-    cum = 0
     for k in sorted(d.k.unique()):
-        s = d[d.k == k]
-        ok = (s.median_CV <= args.cv_cut) & (s["within"] <= args.within_cut)
-        passing = set(s.gene[ok])
-        npass = len(passing)
-        npool = int(diag.loc[k, "n_pools"])
-        # "new" is set-based, not a difference of counts: a gene can pass at one
-        # rung and fail at the next (the within/total criterion tightens with k),
-        # so a count difference would go negative and double-count on the way
-        # back up.  A gene is banked at the FIRST rung that delivers it.
-        new = passing - banked
-        banked |= passing
-        cum += npool * len(new)
-        rows.append(dict(k=k, n_metacells=npool, n_genes_pass=npass,
-                         n_genes_new=len(new), usable_at_k=npool * npass,
-                         usable_cumulative=cum))
+        npass = int(d.passes[d.k == k].sum())
+        rows.append(dict(k=k, n_metacells=int(npool[k]), n_genes_pass=npass,
+                         n_genes_new=int((k_min == k).sum()),
+                         usable_at_k=int(npool[k]) * npass,
+                         usable_cumulative=int(banked[k_min <= k].sum())))
+    assert rows[-1]["usable_cumulative"] == int(banked.sum())
     for r in rows:
         r["usable"] = r["usable_cumulative"] if args.cumulative else r["usable_at_k"]
     t = pd.DataFrame(rows)

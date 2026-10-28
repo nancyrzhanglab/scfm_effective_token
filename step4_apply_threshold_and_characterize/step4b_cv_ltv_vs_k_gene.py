@@ -1,13 +1,11 @@
 #!/usr/bin/env python
-"""task10: Poisson CV vs metacell size k for one gene, across construction methods.
+""" Poisson CV vs metacell size k for one gene, across construction methods.
 
 Curves are median CV over metacells at each k, with the inter-quartile band.
-Pure Poisson sampling would fall as k^-1/2; the guide line shows that slope so
-departures from it are readable.
 
 Not every curve is computed on the same reconstruction -- the source file for
-each is printed and carried into the legend, because a method scored on a
-different main-effect matrix is not directly comparable to the others.
+each is printed and carried into the legend.
+
 """
 import argparse, json, os
 import numpy as np
@@ -52,9 +50,7 @@ def split_label(label):
 
 
 # step3a used to write these as median_Lambda / frac_pools_Lambda0.  The name
-# changed with the vocabulary -- lambda is the RATE, mu the mean expression, and
-# this column is a pooled COUNT, sum_{c in j} mu_cg -- so older CSVs are mapped
-# on load and both generations stay readable.
+# changed with the vocabulary.
 _OLD2NEW = {"median_Lambda": "median_Mu", "frac_pools_Lambda0": "frac_pools_Mu0"}
 
 def main():
@@ -65,12 +61,6 @@ def main():
                          "side panels: median_CV, share_between (between/total) "
                          "or share_within (within/total)")
     ap.add_argument("--h5ad", required=True, help="for the gene-name -> index map")
-    ap.add_argument("--between-col", default="share_between",
-                    choices=["share_between", "share_between1"],
-                    help="which LTV split to plot: share_between weights each cell "
-                         "by its count total N_c (the original), share_between1 "
-                         "weights each cell 1 (cv_ltv_weighting_compare.py).  The "
-                         "within/between/total components follow the same choice.")
     ap.add_argument("--curve", action="append", required=True,
                     metavar="LABEL::CURVES_CSV[::META_JSON]",
                     help="repeatable; '::' separated so labels may contain '='")
@@ -82,11 +72,6 @@ def main():
                          "within a panel by ','")
     ap.add_argument("--hlines", default="0.1,0.25,0.5",
                     help="CV levels to mark with a dashed rule (empty for none)")
-    ap.add_argument("--floor", default="", metavar="LABEL::CSV",
-                    help="a simulated Poisson null to overlay.  Its within/total "
-                         "uses the FIRST --curve's total as the denominator: the "
-                         "simulation has ~9%% less total variance, so dividing by "
-                         "its own would inflate the floor by a factor growing with k.")
     ap.add_argument("--band", action="store_true", default=True)
     ap.add_argument("--no-band", dest="band", action="store_false")
     ap.add_argument("--stack", action="store_true",
@@ -120,10 +105,11 @@ def main():
         d = d[d["gene"] == gi].sort_values("k")
         if d.empty:
             raise SystemExit(f"{label}: no rows for gene {gi}")
-        if args.between_col != "share_between":
-            assert args.between_col in d, f"{label}: no {args.between_col} column in {path}"
-            d = d.assign(share_between=d[args.between_col], within=d["within1"],
-                         between=d["between1"], total=d["total1"])
+        # the LTV is the UNWEIGHTED split (w_c = 1): share_between1 and its
+        # within1/between1/total1, read into the plain names used below
+        assert "share_between1" in d, f"{label}: no share_between1 column in {path}"
+        d = d.assign(share_between=d["share_between1"], within=d["within1"],
+                     between=d["between1"], total=d["total1"])
         src = os.path.basename(str(meta.get("counts", "?")))
         series.append((label, d, src))
         d = d.assign(share_within=1.0 - d["share_between"])
@@ -137,20 +123,6 @@ def main():
         print(f"  {label:22s} k={list(d.k)}  counts={src}")
     tab = pd.DataFrame(rows)
     tab.to_csv(f"{args.out_prefix}_{args.gene}_curves.csv", index=False)
-
-    floor = None
-    if args.floor:
-        flab, fpath = args.floor.split("::")
-        fd = pd.read_csv(fpath).rename(columns=_OLD2NEW)
-        fd = fd[fd["gene"] == gi].sort_values("k")
-        ref = series[0][1].set_index("k")          # the first curve is the yardstick
-        den = ref.total.reindex(fd.k.to_numpy()).to_numpy()
-        fd = fd.assign(share_within=np.where(den > 0,
-                                             fd.within.to_numpy() / den, np.nan),
-                       share_between=np.nan)
-        floor = (flab, fd)
-        print(f"  {flab:22s} k={sorted(fd.k.tolist())} "
-            f"(share on the {series[0][0]} denominator)")
 
     metrics = args.metric.split(",")
     yscales = (args.yscale.split(",") + [args.yscale.split(",")[-1]] * 4)[:len(metrics)]
@@ -207,13 +179,6 @@ def main():
                                     xytext=(-3, 3), textcoords="offset points",
                                     fontsize=tick_fs * 0.85, color="0.45",
                                     ha="right", va="bottom")
-            if floor is not None and metric in ("share_within", "within",
-                                                "between", "total",
-                                                "components"):
-                fl = floor[1]
-                ax.plot(fl.k, fl["within" if comp else metric],
-                        ls=(0, (5, 2)), color="0.35",
-                        marker="o", lw=lw_, ms=ms_, zorder=5, label=floor[0])
             for label, d, src in series:
                 meth, emb = split_label(label)
                 if meth not in seen:

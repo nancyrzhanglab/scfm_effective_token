@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""task10: genes passing BOTH a precision and a homogeneity target, by
+"""Genes passing BOTH a precision and a homogeneity target, by
 expression decile and metacell size.
 
 A gene passes at size k when its median CV across metacells is at or below
@@ -86,7 +86,12 @@ def main():
     os.makedirs(os.path.dirname(args.out_prefix), exist_ok=True)
 
     d = pd.read_csv(args.curves)
-    d["within"] = 1.0 - d["share_between"]
+    # within/total from the UNWEIGHTED split (w_c = 1, share_between1), as in
+    # step5, so the genes counted here are the ones step5 banks; only
+    # cv_ltv_weighting_compare.py curves (*_wcmp*) carry it
+    assert "share_between1" in d, \
+        f"{args.curves} has no share_between1 -- use a cv_ltv_weighting_compare.py curves file"
+    d["within"] = 1.0 - d["share_between1"]
     ks = sorted(d.k.unique())
 
     # expression deciles from the per-gene mean rate (constant across k)

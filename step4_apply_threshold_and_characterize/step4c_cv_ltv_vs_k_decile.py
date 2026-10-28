@@ -1,13 +1,13 @@
 #!/usr/bin/env python
-"""task10: CV and LTV vs k for a whole expression decile, not one gene.
+"""CV and LTV vs k for a whole expression decile, not one gene.
 
-A single gene's curve is noisy and, as GZMK vs MKI67 showed, the ranking of
-methods is gene-specific.  This aggregates over the genes of one expression
-decile: the line is the MEDIAN across those genes and the band is their IQR, so
-the spread shown is BETWEEN GENES -- a different quantity from the per-gene
-figures, where the band was across metacells.
+A single gene's curve is noisy so we examine a group of genes together.
+This aggregates over the genes of one expression decile: the line is the 
+MEDIAN across those genes and the band is their IQR, so the spread shown 
+is BETWEEN GENES -- a different quantity from the per-gene figures, where 
+the band was across metacells.
 
-Deciles are cut on lam_bar, the cohort mean rate, which is a property of the
+Deciles are cut on the cohort mean rate, which is a property of the
 cells and is identical at every k and for every method.  The decile is taken
 from ONE reference curve set and the same gene list is then applied to every
 method, so the comparison is on a fixed gene set rather than on each method's
@@ -52,13 +52,6 @@ def main():
                     metavar="LABEL::CSV")
     ap.add_argument("--reference", default="",
                     help="label whose lam_bar defines the deciles; default the first")
-    ap.add_argument("--between-col", default="share_between",
-                    choices=["share_between", "share_between1"],
-                    help="which LTV split to plot: share_between weights each cell "
-                         "by its count total N_c (the original), share_between1 "
-                         "weights each cell 1 (cv_ltv_weighting_compare.py).  "
-                         "Deciles are still cut on lam_bar either way, so both "
-                         "versions describe the same genes.")
     ap.add_argument("--decile", type=int, default=10)
     ap.add_argument("--n-deciles", type=int, default=10)
     ap.add_argument("--metrics", default="median_CV,share_within")
@@ -69,13 +62,6 @@ def main():
                          "axis with the per-gene one: panels separated by '|', "
                          "ticks within a panel by ','.  Empty = matplotlib's "
                          "own, which on a log axis gives 10^0 / 10^-1.")
-    ap.add_argument("--floor", default="", metavar="LABEL::CSV",
-                    help="a simulated Poisson null to overlay.  Its share is "
-                         "computed against the REFERENCE curve's total, not its "
-                         "own: the simulation has ~9%% less total variance "
-                         "(removing within-metacell biology shrinks the spread "
-                         "of per-cell rates), and dividing each by its own total "
-                         "inflates the floor by a factor that grows with k.")
     ap.add_argument("--band", choices=["iqr", "none"], default="iqr")
     ap.add_argument("--stack", action="store_true",
                     help="panels one above the other instead of side by side; "
@@ -89,10 +75,11 @@ def main():
     for spec in args.curves:
         label, path = spec.split("::")
         d = pd.read_csv(path)
-        if args.between_col != "share_between":
-            assert args.between_col in d, f"{label}: no {args.between_col} column in {path}"
-            d = d.assign(within=d["within1"], between=d["between1"],
-                         total=d["total1"], share_between=d[args.between_col])
+        # the LTV is the UNWEIGHTED split (w_c = 1): share_between1 and its
+        # within1/between1/total1, read into the plain names used below
+        assert "share_between1" in d, f"{label}: no share_between1 column in {path}"
+        d = d.assign(within=d["within1"], between=d["between1"],
+                     total=d["total1"], share_between=d["share_between1"])
         # the curve files carry within/between/total and share_between; the
         # ratio this project reads is within/total, so derive it once here
         if "share_within" not in d:
@@ -110,20 +97,6 @@ def main():
     print(f"\ndecile {args.decile} from {ref}: {len(genes):,} genes, "
           f"lam_bar {lb[list(genes)].min():.2e} - {lb[list(genes)].max():.2e}")
 
-    floor = None
-    # the floor is divided by the reference curve's total; with the w=1 split
-    # that total is total1 while the simulation's within is N_c-weighted
-    assert not (args.floor and args.between_col != "share_between"), \
-        "--floor has only an N_c-weighted within; not valid with --between-col share_between1"
-    if args.floor:
-        flab, fpath = args.floor.split("::")
-        fd = pd.read_csv(fpath)
-        if "share_within" not in fd:
-            fd["share_within"] = np.where(fd.total > 0, fd.within / fd.total, np.nan)
-        floor = (flab, fd)
-        print(f"{flab}: {fd.gene.nunique():,} genes x {fd.k.nunique()} rungs "
-              f"(plotted on the {ref} denominator)")
-
     metrics = args.metrics.split(",")
     yscales = args.yscale.split(",")
     rows = []
@@ -137,28 +110,6 @@ def main():
                 r[f"{m}_q25"], r[f"{m}_med"], r[f"{m}_q75"] = np.percentile(
                     v, [25, 50, 75])
             rows.append(r)
-    if floor is not None:
-        flab, fd = floor
-        rd_idx = rd.set_index(["gene", "k"])
-        for k, g in fd[fd.gene.isin(genes)].groupby("k"):
-            g = g.set_index("gene")
-            den = rd_idx.reindex([(i, k) for i in g.index]).total.to_numpy()
-            r = dict(method=flab, k=int(k), n_genes=len(g))
-            with np.errstate(divide="ignore", invalid="ignore"):
-                v = np.where(den > 0, g.within.to_numpy() / den, np.nan)
-            v = v[np.isfinite(v)]
-            if not len(v):
-                continue
-            r["share_within_q25"], r["share_within_med"], r["share_within_q75"] = \
-                np.percentile(v, [25, 50, 75])
-            for m in metrics:
-                if m == "share_within":
-                    continue
-                vv = g[m].to_numpy(float); vv = vv[np.isfinite(vv)]
-                r[f"{m}_q25"], r[f"{m}_med"], r[f"{m}_q75"] = (
-                    np.percentile(vv, [25, 50, 75]) if len(vv) else (np.nan,)*3)
-            rows.append(r)
-
     tab = pd.DataFrame(rows).sort_values(["method", "k"])
     tab.to_csv(f"{args.out_prefix}_decile{args.decile}_curves.csv", index=False)
     for m in metrics:
@@ -171,16 +122,6 @@ def main():
         fig, axes = plt.subplots(nr, nc, figsize=figsize)
         axes = np.atleast_1d(axes)
         for ax, metric, ysc in zip(axes, metrics, yscales):
-            for label in ([floor[0]] if floor is not None else []):
-                d = tab[tab.method == label].sort_values("k")
-                if d.empty or d[f"{metric}_med"].isna().all():
-                    continue
-                if args.band == "iqr":
-                    ax.fill_between(d.k, d[f"{metric}_q25"], d[f"{metric}_q75"],
-                                    color="0.55", alpha=0.12, lw=0)
-                ax.plot(d.k, d[f"{metric}_med"], ls=(0, (5, 2)), color="0.35",
-                        marker="o", lw=1.6 if tight else 1.2,
-                        ms=4 if tight else 2.5, label=label, zorder=5)
             for label, _ in series:
                 d = tab[tab.method == label].sort_values("k")
                 meth, emb = split_label(label)

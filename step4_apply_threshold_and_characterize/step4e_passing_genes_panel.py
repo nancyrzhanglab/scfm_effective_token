@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""task10: genes passing BOTH criteria -- a total-count line over the per-decile grid.
+"""Genes passing BOTH criteria -- a total-count line over the per-decile grid.
 
-Same table as plot_pass_by_decile.py (a gene passes at size k when its median CV
+Same table as step4d_pass_by_decile.py (a gene passes at size k when its median CV
 across metacells is <= --cv-cut AND its within/total share is <= --within-cut),
 drawn as two stacked panels on one x axis:
 
@@ -29,7 +29,7 @@ from matplotlib.patches import Rectangle
 matplotlib.use("Agg")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from plot_pass_by_decile import RAMPS, INK, INK_MUTED
+from step4d_pass_by_decile import RAMPS, INK, INK_MUTED
 
 _SANS = next((f for f in ("Helvetica", "Nimbus Sans", "Arial")
               if any(x.name == f for x in
@@ -87,9 +87,14 @@ def main():
     A = ap.parse_args()
     os.makedirs(os.path.dirname(A.out_prefix), exist_ok=True)
 
-    # ---- the table, computed exactly as plot_pass_by_decile.py does ---------
+    # ---- the table, computed exactly as step4d_pass_by_decile.py does ---------
     d = pd.read_csv(A.curves)
-    d["within"] = 1.0 - d["share_between"]
+    # within/total from the UNWEIGHTED split (w_c = 1, share_between1), as in
+    # step5, so the genes counted here are the ones step5 banks; only
+    # cv_ltv_weighting_compare.py curves (*_wcmp*) carry it
+    assert "share_between1" in d, \
+        f"{A.curves} has no share_between1 -- use a cv_ltv_weighting_compare.py curves file"
+    d["within"] = 1.0 - d["share_between1"]
     ks = sorted(d.k.unique())
     base = d.groupby("gene")["lam_bar"].first()
     dec = pd.qcut(base.rank(method="first"), 10, labels=range(1, 11)).astype(int)

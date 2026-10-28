@@ -1,27 +1,26 @@
 #!/usr/bin/env python
-"""task10: the cumulative usable-measurement total, over a grid of CV x within cuts.
+"""The cumulative usable-measurement total, over a grid of CV x within cuts.
 
 One cell = one (CV cut, within/total cut) pair, holding the SAME banking rule
-plot_usable_measurements.py --cumulative uses:
+step5a_usable_measurements.py --cumulative uses, per gene:
 
-    for k ascending:
-        passing = genes with median_CV <= cv AND within/total <= w   (at this k)
-        new      = passing - banked          # first rung that delivers the gene
-        cum     += n_metacells(k) * |new|
+    k_min(g) = the smallest k with median_CV <= cv AND within/total <= w
+    cell     = sum over genes of n_metacells(k_min(g))
 
 so a gene is counted once, at the finest rung where it qualifies, and valued at
-that rung's metacell count.  The rightmost rung's cumulative total is the cell.
+that rung's metacell count; a gene that never qualifies adds 0.  A gene that
+passes at one rung and fails at the next (the within/total criterion tightens
+with k) is still banked at its first passing rung.
 
-A count difference would be wrong here and the set difference is deliberate: the
-within/total criterion tightens with k, so a gene can pass at one rung and fail
-at the next, and differencing counts would go negative and then double-count on
-the way back up.
+within/total is the UNWEIGHTED law-of-total-variance split (w_c = 1,
+share_between1), as in step5a, so the curves must come from
+cv_ltv_weighting_compare.py (*_wcmp*).
 
 Cells are vector rectangles, not imshow: matplotlib writes an imshow grid into a
 PDF as a 4-bit INDEXED image, which some viewers render washed out once the
 figure is embedded in a document.
 """
-import argparse, os, sys
+import argparse, os
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -30,8 +29,23 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Rectangle
 matplotlib.use("Agg")
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from plot_pass_by_decile import RAMPS, INK, INK_MUTED
+# The palette of step4_apply_threshold_and_characterize/step4d_pass_by_decile.py, inlined rather
+# than imported across stages (this script used to sit next to that one).
+# Sequential, one hue, light -> dark.
+RAMPS = {
+    "green": ["#f3faf6", "#ddf1e6", "#c2e7d3", "#a3dabd", "#81cca5", "#5dbd8c",
+              "#38b07f", "#1baf7a", "#189a6b", "#14855c", "#10704d", "#0b5a3e",
+              "#084530", "#063324"],
+    "blue": ["#eaf2fd", "#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec",
+             "#5598e7", "#3987e5", "#2a78d6", "#256abf", "#1c5cab", "#184f95",
+             "#104281", "#0d366b"],
+    # positional stops: the anchor #e84b4b is pinned at 0.80 of the ramp
+    "red": [(0.00, "#fdf0ef"), (0.10, "#fbdedd"), (0.20, "#f8c9c8"),
+            (0.30, "#f5b2b1"), (0.40, "#f29b9a"), (0.50, "#f08685"),
+            (0.60, "#ee716f"), (0.70, "#eb5d5b"), (0.80, "#e84b4b"),
+            (0.90, "#c73c3c"), (1.00, "#9e2e2e")],
+}
+INK, INK_MUTED = "#1a1a19", "#6b6a66"
 
 _SANS = next((f for f in ("Helvetica", "Nimbus Sans", "Arial")
               if any(x.name == f for x in
@@ -52,19 +66,16 @@ def _lum(rgba):
 
 
 def cumulative_series(d, diag, cv_cut, w_cut):
-    """The banking loop, identical to plot_usable_measurements.py --cumulative.
+    """The banking rule of step5a_usable_measurements.py --cumulative.
 
-    Returns the running total at every rung; the grid cell is the last one, and
-    the bar panel is the whole series -- the same numbers, un-collapsed."""
-    banked, cum, out = set(), 0, []
-    for k in sorted(d.k.unique()):
-        s = d[d.k == k]
-        passing = set(s.gene[(s.median_CV <= cv_cut) & (s["within"] <= w_cut)])
-        new = passing - banked
-        banked |= passing
-        cum += int(diag.loc[k, "n_pools"]) * len(new)
-        out.append((int(k), cum, len(new)))
-    return out
+    Returns (k, running total, genes banked at k) at every rung; the grid cell
+    is the last running total, and the bar panel is the whole series -- the
+    same numbers, un-collapsed."""
+    passes = (d.median_CV <= cv_cut) & (d["within"] <= w_cut)
+    k_min = d[passes].groupby("gene").k.min()           # first passing rung per gene
+    banked = k_min.map(diag["n_pools"].astype(int))     # metacells counted per gene
+    return [(int(k), int(banked[k_min <= k].sum()), int((k_min == k).sum()))
+            for k in sorted(d.k.unique())]
 
 
 def cumulative(d, diag, cv_cut, w_cut):
@@ -119,11 +130,8 @@ def main():
                          "construction.  The within steps are omitted: around "
                          "the operating point they are all 1.00-1.03x.")
     ap.add_argument("--annotate-cost", action="store_true",
-                    help="a second line on each tick: for CV the pooled count "
-                         "the cut demands (Lambda = 1/CV^2), for within/total "
-                         "where the cut sits against the Poisson floor")
-    ap.add_argument("--floor", default="", metavar="CSV",
-                    help="simulated floor curves, for --annotate-cost")
+                    help="a second line on each CV tick: the pooled count the "
+                         "cut demands (Lambda = 1/CV^2)")
     ap.add_argument("--bars", action="store_true",
                     help="also write a 5x5 panel of the per-rung accumulation "
                          "that each grid cell collapses into one number")
@@ -134,7 +142,11 @@ def main():
     os.makedirs(os.path.dirname(A.out_prefix), exist_ok=True)
 
     d = pd.read_csv(A.curves)
-    d["within"] = 1.0 - d["share_between"]
+    # within/total from the UNWEIGHTED split (w_c = 1, share_between1), as in
+    # step5a; only cv_ltv_weighting_compare.py curves (*_wcmp*) carry it
+    assert "share_between1" in d, \
+        f"{A.curves} has no share_between1 -- use a cv_ltv_weighting_compare.py curves file"
+    d["within"] = 1.0 - d["share_between1"]
     diag = pd.read_csv(A.diag).set_index("k")
     cvs = [float(v) for v in (A.cv_cuts or A.cuts).split(",")]
     ws = [float(v) for v in (A.w_cuts or A.cuts).split(",")]
@@ -171,26 +183,7 @@ def main():
         print(pd.DataFrame(MARG, index=tab.index,
                            columns=mcols).round(2).to_string())
 
-    # row labels: optionally say where each within cut sits against the floor
     ylabs = [f"{w:g}" for w in ws_plot]
-    if A.annotate_cost and A.floor:
-        fl = pd.read_csv(A.floor)
-        o = d.groupby("gene")["lam_bar"].first()
-        topg = set(o.index[o.rank(method="first") > 0.9 * o.size])
-        mm = d.merge(fl[["gene", "k", "within"]], on=["gene", "k"],
-                     suffixes=("", "_f"))
-        fs_by_k = (mm[mm.gene.isin(topg)].assign(f=lambda x: x.within_f / x.total)
-                   .groupby("k")["f"].median())
-        ks_hi = sorted(k for k in fs_by_k.index if k >= 64)
-        lo, hi = float(fs_by_k[ks_hi[0]]), float(fs_by_k[ks_hi[-1]])
-        print(f"\nPoisson floor on within/total (top decile): "
-              f"{lo:.3f} at k={ks_hi[0]} .. {hi:.3f} at k={ks_hi[-1]}")
-        for i, w in enumerate(ws_plot):
-            # a cut below the floor cannot be met at that rung however good the
-            # partition is, so it is worth saying on the axis
-            tag = ("below floor" if w < lo else
-                   "above floor" if w > hi else "crosses floor")
-            ylabs[i] = f"{w:g}\n({tag})"
     cfs = A.cell_fontsize or A.fontsize * 0.85
     W, H = (float(v) for v in A.size.split(","))
     fs = A.fontsize

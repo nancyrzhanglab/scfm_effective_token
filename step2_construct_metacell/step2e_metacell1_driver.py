@@ -2,7 +2,7 @@
 """MetaCell-1 (Baran et al. 2019, Genome Biology 20:206) on one pile, run
 through the authors' engine (tgstat, the C++ behind tanaylab/metacell).
 
-The algorithm is step2e_metacell1_pile.R: the MetaCell R package's own pipeline
+The algorithm is step2e_metacell1_tgstat.R: the MetaCell R package's own pipeline
 (bknn graph -> 500 resampled graph covers -> balanced co-cluster cover) calling
 tgstat.  It replaces an earlier Python re-implementation that departed from the
 package in its balanced k-NN, its graph cover and its outlier handling; that
@@ -17,7 +17,7 @@ This driver does only what MetaCell does not:
      force) rather than approximate: a pile is <= ~24k cells, and k_expand = 10
      asks for 640 neighbours, deep in the tail where NN-descent recall drops.
   2. the hand-off to R and back.
-  3. centroids and the per-pile npz in the layout task10's merge_ward.py reads
+  3. centroids and the per-pile npz in the layout step2f_merge_ward.py reads
      (rows / local / centroids / sizes / meta).
 
 OUTLIERS ARE KEPT OUT.  MetaCell leaves cells it cannot cover unassigned; they
@@ -51,13 +51,15 @@ ap.add_argument("--k-beta", type=float, default=3)
 ap.add_argument("--resamp-min-mc-size", type=int, default=20)
 ap.add_argument("--p-resamp", type=float, default=0.75)
 ap.add_argument("--n-resamp", type=int, default=500)
-ap.add_argument("--balanced-K", type=int, default=30)
+ap.add_argument("--balanced-K", type=int, default=30, help="project runs: 20")
 ap.add_argument("--balanced-alpha", type=float, default=2)
-ap.add_argument("--min-mc-size", type=int, default=30)
+ap.add_argument("--min-mc-size", type=int, default=30, help="project runs: 25")
 ap.add_argument("--cooling", type=float, default=1.05)
 ap.add_argument("--burn-in", type=int, default=10)
 ap.add_argument("--rseed", type=int, default=42)
 ap.add_argument("--nproc", type=int, default=int(os.environ.get("NSLOTS", "1")))
+ap.add_argument("--coc-cache", default="",
+                help="RDS path: reuse/save the stage-2 co-cluster table (parameter sweeps on one pile)")
 ap.add_argument("--force", action="store_true")
 A = ap.parse_args()
 
@@ -110,10 +112,11 @@ with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as tmp:
               "balanced_alpha": A.balanced_alpha, "min_mc_size": A.min_mc_size,
               "cooling": A.cooling, "burn_in": A.burn_in, "rseed": A.rseed,
               "nproc": A.nproc}
-    cmd = [A.rscript, os.path.join(HERE, "step2e_metacell1_pile.R")] + \
+    cmd = [A.rscript, os.path.join(HERE, "step2e_metacell1_tgstat.R")] + \
           [f"--{k}={v}" for k, v in params.items()] + \
           [f"--knn_{k}={f[k]}" for k in ("col1", "col2", "rank", "dist")] + \
-          [f"--out={f['out']}"]
+          [f"--out={f['out']}"] + \
+          ([f"--coc_cache={A.coc_cache}"] if A.coc_cache else [])
     subprocess.run(cmd, check=True)
     cl = np.fromfile(f["out"], dtype="<i4").astype(np.int64)
 assert len(cl) == n, f"R returned {len(cl)} labels for {n} cells"

@@ -17,6 +17,9 @@
 #   3. mcell_mc_from_coclust_balanced   (R/mc_from_coclust.r)
 #        mcell_coclust_filt_by_k_deg(K, alpha) -> tgs_graph_cover(min_mc_size)
 #
+# Called by step2e_metacell1_driver.py, which builds the input k-NN and saves
+# the pile; run that, not this file.
+#
 # ONE deliberate substitution, in stage 1: x_knn is not tgs_cor_knn on log UMIs
 # of feature genes but the exact Euclidean k-NN in the embedding, computed by the
 # Python driver and handed over in tgs_cor_knn's own output format (col1, col2,
@@ -75,15 +78,26 @@ lg("balanced graph: ", nrow(gr), " edges, mean out-degree ", round(nrow(gr) / n,
    ", nodes with an edge ", length(unique(c(as.character(gr$mc1), as.character(gr$mc2)))))
 
 # ---- stage 2: mcell_coclust_from_graph_resamp ----------------------------------
-set.seed(seed = rseed)
-edges = gr
-colnames(edges) = c("col1", "col2", "weight")
-K_res = round(nrow(edges) / length(cells))
-resamp = tgs_graph_cover_resample(edges, knn = K_res, resamp_min, cooling = cool, burn_in = burn,
-                                  p_resamp = p_resamp, n_resamp = n_resamp, method = "full")
-resamp$co_cluster = resamp$co_cluster[as.numeric(resamp$co_cluster$node1) > 0, ]
-coc = list(coclust = resamp$co_cluster, n_samp = resamp$samples)
-lg("resampling: ", n_resamp, " x p=", p_resamp, ", knn=", K_res, ", co-cluster pairs ", nrow(coc$coclust))
+# --coc_cache (optional, not in the package): stage 3 parameters can be swept on
+# one pile without redoing the resampling, which is ~90% of the runtime.  The
+# cache depends only on stages 1-2 inputs, so it is reused only for the same
+# pile, K, k_expand, k_beta and resampling arguments.
+cache = if ("coc_cache" %in% names(P)) P[["coc_cache"]] else ""
+if (nzchar(cache) && file.exists(cache)) {
+	coc = readRDS(cache)
+	lg("co-cluster loaded from cache ", cache, ": ", nrow(coc$coclust), " pairs")
+} else {
+	set.seed(seed = rseed)
+	edges = gr
+	colnames(edges) = c("col1", "col2", "weight")
+	K_res = round(nrow(edges) / length(cells))
+	resamp = tgs_graph_cover_resample(edges, knn = K_res, resamp_min, cooling = cool, burn_in = burn,
+	                                  p_resamp = p_resamp, n_resamp = n_resamp, method = "full")
+	resamp$co_cluster = resamp$co_cluster[as.numeric(resamp$co_cluster$node1) > 0, ]
+	coc = list(coclust = resamp$co_cluster, n_samp = resamp$samples)
+	lg("resampling: ", n_resamp, " x p=", p_resamp, ", knn=", K_res, ", co-cluster pairs ", nrow(coc$coclust))
+	if (nzchar(cache)) saveRDS(coc, cache)
+}
 
 # ---- stage 3: mcell_coclust_filt_by_k_deg + mcell_mc_from_coclust_balanced ----
 mcell_coclust_filt_by_k_deg = function(coc, K, alpha)

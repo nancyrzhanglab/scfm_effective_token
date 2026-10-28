@@ -1,10 +1,10 @@
 #!/usr/bin/env python
-"""Step 3 of 3 -- agglomerative merging of the SEACells base into a NESTED ladder.
+"""Agglomerative merging of a flat metacell base (SEACells or MetaCell-1) into a NESTED ladder.
 
-This is the step that buys nesting.  SEACells is a flat method: running it at
-k=16 and again at k=64 gives two partitions with no containment relation, so a
-"metacell at k=64" is not a union of "metacells at k=16" and quantities cannot be
-tracked across k.  Ward merging fixes that structurally -- ONE dendrogram is
+This is the step that buys nesting.  SEACells and MetaCell-1 are flat methods:
+running one at k=64 and again at k=128 gives two partitions with no containment
+relation, so a "metacell at k=128" is not a union of "metacells at k=64" and
+quantities cannot be tracked across k.  Ward merging fixes that structurally -- ONE dendrogram is
 built over the base metacells and every rung is a cut of that same tree, so each
 coarse metacell is exactly a union of finer ones by construction, not by
 approximation.  Nesting is a property of the tree, so it holds for any cut and is
@@ -46,12 +46,20 @@ graph.  Merges are recorded as a union-find sequence, so a cut at T clusters is
 "apply the first NB - T merges" and nesting across rungs is automatic.
 
 Rungs are cell-count targets: T_k = round(n_base * base_k / k), i.e. the cut that
-makes the MEAN metacell size equal k.
+makes the MEAN metacell size equal k when the base mean is base_k.
+--base-k 64 takes the nominal value, so k=64 is the unmerged base whatever its
+realised mean (the task10 SEACells and MetaCell-1 ladders).  --base-k auto
+takes the realised mean N/NB, so T_k = round(N / k) and every rung's mean is
+exactly k; when the base mean is below 64 the k=64 rung is then a small merge
+(the step13 tgstat MetaCell-1 ladders: scGPT base mean 58.8).
+
+Cells: only those listed in the per-pile `rows`.  MetaCell-1 leaves its
+outliers out of `rows`, so they are in no metacell at any rung.
 
 Output: metacell_labels_<tag>.npz with one int32 label vector per rung, keyed
-lab_mean<k>_<tag> and indexed by FILTERED-cohort row, matching the layout of
-task9's recursive-Leiden ladder so the downstream analysis scripts take it
-unchanged.  base_rowidx.npy maps those rows to the full 5,381,464-row cohort.
+lab_mean<k>_<tag> and indexed by the ladder's own cells in filtered-cohort order;
+<prefix>_rowidx_filtered.npy gives their filtered-cohort rows, and step2g maps
+them to the full 5,381,464-row cohort.
 """
 import argparse, glob, json, os, time
 
@@ -74,9 +82,10 @@ ap.add_argument("--pattern", default="pile_*.npz",
 ap.add_argument("--piles", required=True)
 ap.add_argument("--out-prefix", required=True)
 ap.add_argument("--tag", default="seacells_ward")
-ap.add_argument("--base-k", type=int, default=16)
+ap.add_argument("--base-k", default="64",
+                help="nominal base size, or auto = realised mean N/NB (see docstring)")
 ap.add_argument("--rungs", type=int, nargs="+",
-                default=[16, 32, 64, 128, 256, 512, 1024])
+                default=[64, 128, 256, 512, 1024])
 ap.add_argument("--n-neighbors", type=int, default=15)
 ap.add_argument("--linkage", choices=["ward_weighted", "ward_sklearn"],
                 default="ward_weighted",
@@ -118,8 +127,9 @@ assert np.all(np.diff(rows) > 0), "pile row sets overlap or repeat"
 N = len(rows)
 NB = len(SIZE)
 assert SIZE.sum() == N
+A.base_k = (N / NB) if A.base_k == "auto" else int(A.base_k)
 log(f"base rung: {NB:,} metacells over {N:,} cells "
-    f"(mean {N/NB:.2f} cells/metacell, target {A.base_k})")
+    f"(mean {N/NB:.2f} cells/metacell, base_k {A.base_k:.2f})")
 log(f"base sizes: min {SIZE.min()} p10 {np.percentile(SIZE,10):.0f} "
     f"median {np.median(SIZE):.0f} p90 {np.percentile(SIZE,90):.0f} max {SIZE.max()}")
 

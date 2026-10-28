@@ -1,12 +1,12 @@
 #!/usr/bin/env python
-"""task10: how many genes reach a given precision at each metacell size.
+"""how many genes reach a given precision at each metacell size.
 
 Cell (t, k) = number of genes whose median CV across metacells at size k is at
 or below the precision threshold t. Both axes are ordinal and the value is a
 magnitude, so this is a one-hue sequential heatmap.
 
 Genes whose CV is undefined at a given k (no metacell with a non-zero rate)
-simply fail the threshold, which is the right behaviour: they are not precise.
+simply fail the threshold.
 """
 import argparse, os
 import numpy as np
@@ -47,10 +47,7 @@ INK, INK_MUTED = "#1a1a19", "#6b6a66"
 
 
 
-# step3a used to write these as median_Lambda / frac_pools_Lambda0.  The name
-# changed with the vocabulary -- lambda is the RATE, mu the mean expression, and
-# this column is a pooled COUNT, sum_{c in j} mu_cg -- so older CSVs are mapped
-# on load and both generations stay readable.
+# Just changing the vocabulary... Mu describes gene expression count scale
 _OLD2NEW = {"median_Lambda": "median_Mu", "frac_pools_Lambda0": "frac_pools_Mu0"}
 
 def main():
@@ -93,8 +90,7 @@ def main():
     ap.add_argument("--pdf-fontsize", type=float, default=10)
     ap.add_argument("--cell-format", choices=["count", "compact"],
                     default="count",
-                    help="compact renders 2,967 as 3.0k so four-digit counts "
-                         "fit a narrow cell")
+                    help="compact renders to fit a narrow plot")
     ap.add_argument("--cell-fontsize", type=float, default=0.0,
                     help="font size of the in-cell counts; 0 derives it from "
                          "the figure font size. Below 6 pt the thousands "
@@ -108,7 +104,11 @@ def main():
     os.makedirs(os.path.dirname(args.out_prefix), exist_ok=True)
 
     d = pd.read_csv(args.curves).rename(columns=_OLD2NEW)
-    d["share_within"] = 1.0 - d["share_between"]
+    # within/total from the UNWEIGHTED split (w_c = 1, share_between1), as in
+    # step4b-e and step5
+    assert "share_between1" in d, \
+        f"{args.curves} has no share_between1 -- use step3a / cv_ltv_weighting_compare.py curves"
+    d["share_within"] = 1.0 - d["share_between1"]
     SEQ = LinearSegmentedColormap.from_list(args.cmap, RAMPS[args.cmap])
     print(f"ramp '{args.cmap}': 0.80 -> "
           + matplotlib.colors.to_hex(SEQ(0.80)))
@@ -141,9 +141,7 @@ def main():
             if args.min_mu > 0:
                 sub = sub[sub.median_Mu >= args.min_mu]
             for i, t in enumerate(ts):
-                out[i, j] = int((sub[metric] <= t).sum())
-        # ts is already in display order by the time this runs -- flipping
-        # here as well would invert the data against its own row labels
+                out[i, j] = int((sub[metric] <= t).sum()) # across thresholds (ts) and metacell level (ks), how many genes are below the threshold t
         return out
 
     if args.pair:
@@ -228,9 +226,7 @@ def main():
                 fit_bars()
             fig.savefig(path, dpi=300, bbox_inches="tight", facecolor="white")
         else:
-            # margins from what the labels actually occupy: the y tick labels
-            # ("0.45" at the tick size) plus one rotated axis label, converted
-            # from points to a fraction of the page
+            # margins from what the labels actually occupy
             w_in, h_in = figsize
             nr, nc = Mx.shape
             bot_in = (4 * fs * 0.8 * 0.62 + afs * 1.25 + 6) / 72

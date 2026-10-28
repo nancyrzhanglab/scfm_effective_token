@@ -13,7 +13,7 @@ T cells from the CELLxGENE Census.
 | `step1_recover_gex/` | CellANOVA: turn a cell embedding back into a count-scale cell × gene matrix |
 | `step2_construct_metacell/` | nested metacell ladders by three methods (recursive Leiden, SEACells, MetaCell-1) on both embeddings |
 | `step3_estimate_noise_and_mixing/` | per gene and per metacell size: Poisson CV to estimate measurement noise, and the law-of-total-variance split into within / between to measure mixing |
-| `step4_apply_threshold/` | how each criterion behaves against metacell size, one criterion at a time |
+| `step4_apply_threshold_and_characterize/` | how each criterion behaves against metacell size, one criterion at a time, and characterize the passing genes at one threshold pair |
 | `step5_calculate_eff_tokens/` | apply both criteria and bank the usable measurements |
 
 

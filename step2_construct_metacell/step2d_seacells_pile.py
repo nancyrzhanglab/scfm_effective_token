@@ -32,14 +32,12 @@ ap.add_argument("--emb", required=True)
 ap.add_argument("--piles", required=True)
 ap.add_argument("--pile", type=int, required=True)
 ap.add_argument("--out-dir", required=True)
-ap.add_argument("--target-size", type=int, default=16)
+ap.add_argument("--target-size", type=int, default=64)
 ap.add_argument("--n-neighbors", type=int, default=15)
 ap.add_argument("--n-waypoint-eigs", type=int, default=10)
 ap.add_argument("--max-iter", type=int, default=100)
 ap.add_argument("--min-iter", type=int, default=10)
 ap.add_argument("--epsilon", type=float, default=1e-3)
-ap.add_argument("--seed", type=int, default=0,
-                help="seeds numpy's global RNG, which SEACells draws from unseeded")
 ap.add_argument("--force", action="store_true")
 A = ap.parse_args()
 
@@ -93,7 +91,7 @@ K = len(uniq)
 sz = np.bincount(loc, minlength=K)
 assert sz.min() > 0
 
-# compute metacell centroid and use in step2g Ward merge to repeatly merge base metacells
+# compute metacell centroid and use in step2f Ward merge to repeatly merge base metacells
 cent = np.zeros((K, D), np.float64)
 np.add.at(cent, loc, X.astype(np.float64))
 cent /= sz[:, None]
@@ -110,8 +108,7 @@ np.savez_compressed(
     meta=np.array(json.dumps({
         "pile": A.pile, "n_cells": int(n), "n_requested": int(n_mc),
         "n_realised": int(K), "target_size": A.target_size,
-        "n_neighbors": A.n_neighbors, "seed": A.seed + A.pile,
-        "iters": int(len(model.RSS_iters)),
+        "n_neighbors": A.n_neighbors, "iters": int(len(model.RSS_iters)),
         "seconds": round(time.time() - t0, 1),
     })),
 )

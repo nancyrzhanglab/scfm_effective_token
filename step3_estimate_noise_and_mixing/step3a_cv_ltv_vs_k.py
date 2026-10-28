@@ -17,9 +17,23 @@ N_c is the reconstructed HVG total
 
 
 Outputs (--out-dir):
-    cv_ltv_curves_<outtag>.csv.gz    gene x k: CV quantiles, within/between/total
+    cv_ltv_curves_<outtag>.csv.gz    gene x k: CV quantiles; the w_c = 1 LTV as
+                                     within1 / between1 / total1 / lam_bar1 /
+                                     share_between1; lam_bar
     cv_ltv_diag_<outtag>.csv         per k: pools, sizes, coverage, LTV closure
     cv_ltv_<outtag>.json
+
+Column names follow cv_ltv_weighting_compare.py, where the suffix 1 marks the
+w_c = 1 split and the unsuffixed within/between/total/share_between are the
+N_c-weighted one.  Only the w_c = 1 split is computed here, so only the
+suffixed columns are written: a reader asking for share_between1 gets this
+split from either script, and a weighted curves file cannot be read as an
+unweighted one by mistake.
+
+lam_bar is the gene's POOLED cohort rate, sum_c mu_cg / sum_c N_c over the
+labelled cells -- the per-gene expression level the expression deciles are cut
+on (step4c-e), identical to lam_bar in cv_ltv_weighting_compare.py.  It is not
+lam_bar1, the unweighted mean of the per-cell rates that the LTV centres on.
 """
 import argparse, json, os, time
 import numpy as np, pandas as pd
@@ -165,6 +179,9 @@ for bi,(g0,g1) in enumerate(BLK):
     if bi % 3 == 0: log(f"  gene block {bi+1}/{len(BLK)}")
 
 # Assemble and write results
+# pooled cohort rate per gene over the labelled cells (the expression level the
+# deciles are cut on; see the docstring) -- the same at every k
+lam_pooled = gene_rec / N_c[keep].sum()
 rows=[]; diag=[]
 for k in KS:
     d = {p: np.concatenate(v) for p,v in acc[k].items()}
@@ -173,18 +190,19 @@ for k in KS:
     rows.append(pd.DataFrame(dict(gene=genes, k=k,
         median_CV=d["medCV"], q25_CV=d["q25"], q75_CV=d["q75"],
         median_Mu=d["medMu"], frac_pools_Mu0=d["fz"],
-        within=d["wi"], between=d["be"], total=d["to"], lam_bar=d["lb"],
-        share_between=np.where(d["to"]>0, d["be"]/np.maximum(d["to"],1e-300), np.nan))))
+        within1=d["wi"], between1=d["be"], total1=d["to"], lam_bar1=d["lb"],
+        share_between1=np.where(d["to"]>0, d["be"]/np.maximum(d["to"],1e-300), np.nan),
+        lam_bar=lam_pooled)))
     s = sizes_of[k]
     diag.append(dict(k=k, n_pools=m_of[k], size_min=int(s.min()),
                      size_median=float(np.median(s)), size_max=int(s.max()),
                      size_mean=float(s.mean()), coverage=float((labs[k]>=0).mean()),
                      ltv_closure_max_rel=float(np.nanmax(clo)),
                      median_CV_over_genes=float(np.nanmedian(d["medCV"])),
-                     median_share_between=float(np.nanmedian(
+                     median_share_between1=float(np.nanmedian(
                          np.where(d["to"]>0, d["be"]/np.maximum(d["to"],1e-300), np.nan)))))
     log(f"k={k:4d}: {m_of[k]:8,} pools | median CV {np.nanmedian(d['medCV']):.4f} | "
-        f"median between/total {diag[-1]['median_share_between']:.4f} | "
+        f"median between/total {diag[-1]['median_share_between1']:.4f} | "
         f"LTV closure {np.nanmax(clo):.2g}")
 
 # Mu is the internal name (Mu_j = sum_{c in j} mu_cg, a pooled COUNT; lambda is
